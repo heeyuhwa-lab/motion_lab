@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#3949ab">
+<title>AI Motion Lab</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f3f5f9;font-family:Arial,"Noto Sans KR",sans-serif;color:#222}
+.app{max-width:520px;margin:auto;min-height:100vh;background:#fff;padding-bottom:28px}
+header{background:#3949ab;color:#fff;text-align:center;padding:22px 15px}
+h1{margin:0 0 6px;font-size:25px}header p{margin:0;font-size:14px}
+section{padding:15px 16px 0}label{display:block;font-weight:bold;margin-bottom:7px}
+input{width:100%;padding:12px;border:2px solid #ddd;border-radius:8px;font-size:16px}
+.buttons,.actions{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px}
+button{border:0;border-radius:9px;padding:13px 6px;font-size:16px;font-weight:bold}
+#start{background:#3949ab;color:#fff}#stop{background:#e0e0e0}
+#download{background:#546e7a;color:#fff}#share{background:#00897b;color:#fff}
+button:disabled{opacity:.45}.status{margin-top:12px;padding:10px;text-align:center;background:#f1f3f5;border-radius:8px;font-weight:bold}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
+.card,.stat{padding:10px;border-radius:8px;background:#f7f7f7;border:1px solid #ddd}
+.name,.stat b{font-size:13px;color:#555}.value,.stat span{display:block;font-size:20px;font-weight:bold;margin-top:4px}
+.notice{margin:15px 16px 0;padding:12px;background:#fff8e1;border-left:4px solid #ffb300;font-size:13px;line-height:1.5}
+small{display:block;margin-top:8px;color:#666;line-height:1.45}
+</style>
+</head>
+<body>
+<div class="app">
+<header><h1>AI Motion Lab</h1><p>스마트폰 센서 기반 운동 데이터 수집</p></header>
+<section>
+<label>운동 이름</label>
+<input id="exercise" type="text" placeholder="예: 걷기, 달리기, 롤러코스터">
+<div class="buttons"><button id="start">측정 시작</button><button id="stop" disabled>측정 종료</button></div>
+<div id="status" class="status">대기 중</div>
+
+<div class="grid">
+<div class="card"><div class="name">X 가속도 (m/s²)</div><div id="x" class="value">0.000</div></div>
+<div class="card"><div class="name">Y 가속도 (m/s²)</div><div id="y" class="value">0.000</div></div>
+<div class="card"><div class="name">Z 가속도 (m/s²)</div><div id="z" class="value">0.000</div></div>
+<div class="card"><div class="name">합성 가속도</div><div id="total" class="value">0.000</div></div>
+</div>
+
+<div class="grid">
+<div class="stat"><b>평균</b><span id="avg">0.000</span></div>
+<div class="stat"><b>최대</b><span id="max">0.000</span></div>
+<div class="stat"><b>최소</b><span id="min">0.000</span></div>
+<div class="stat"><b>데이터 개수</b><span id="count">0</span></div>
+</div>
+
+<div class="actions"><button id="download" disabled>CSV 저장</button><button id="share" disabled>CSV 전송/공유</button></div>
+<small>시간은 측정 시작 후 경과한 ms로 저장됩니다.<br>합성 가속도 = √(x² + y² + z²)</small>
+</section>
+<div class="notice"><b>사용 안내</b><br>
+스마트폰 브라우저에서 측정 시작을 누르세요. iPhone/iPad는 센서 권한을 요청할 수 있습니다.
+센서 기능은 HTTPS 환경에서 사용하는 것이 가장 안정적입니다.
+</div>
+</div>
+
+<script>
+let measuring=false, rows=[], startTime=0;
+const $=id=>document.getElementById(id);
+
+async function permission(){
+  if(typeof DeviceMotionEvent!=="undefined" &&
+     typeof DeviceMotionEvent.requestPermission==="function"){
+    const r=await DeviceMotionEvent.requestPermission();
+    if(r!=="granted") throw Error("센서 권한이 허용되지 않았습니다.");
+  }
+}
+
+function motion(e){
+  if(!measuring)return;
+  const a=e.accelerationIncludingGravity||e.acceleration;
+  if(!a)return;
+  const x=Number(a.x||0), y=Number(a.y||0), z=Number(a.z||0);
+  const total=Math.sqrt(x*x+y*y+z*z);
+  const t=Math.round(performance.now()-startTime);
+  $("x").textContent=x.toFixed(3);$("y").textContent=y.toFixed(3);
+  $("z").textContent=z.toFixed(3);$("total").textContent=total.toFixed(3);
+  rows.push({time_ms:t,x,y,z,total});
+  const v=rows.map(r=>r.total), sum=v.reduce((a,b)=>a+b,0);
+  $("avg").textContent=(sum/v.length).toFixed(3);
+  $("max").textContent=Math.max(...v).toFixed(3);
+  $("min").textContent=Math.min(...v).toFixed(3);
+  $("count").textContent=rows.length;
+}
+
+$("start").onclick=async()=>{
+  const name=$("exercise").value.trim();
+  if(!name){alert("운동 이름을 입력하세요.");return}
+  try{
+    await permission(); rows=[]; startTime=performance.now(); measuring=true;
+    $("status").textContent="측정 중...";
+    $("start").disabled=true;$("stop").disabled=false;
+    $("download").disabled=true;$("share").disabled=true;
+    addEventListener("devicemotion",motion);
+  }catch(e){alert(e.message)}
+};
+
+$("stop").onclick=()=>{
+  measuring=false;removeEventListener("devicemotion",motion);
+  $("status").textContent="측정 종료 · "+rows.length+"개 데이터";
+  $("start").disabled=false;$("stop").disabled=true;
+  $("download").disabled=rows.length===0;$("share").disabled=rows.length===0;
+};
+
+function makeFile(){
+  const name=$("exercise").value.trim()||"운동";
+  const safe=name.replace(/[\\/:*?"<>|]/g,"_");
+  let csv="exercise,time_ms,x,y,z,total\n";
+  rows.forEach(r=>csv+=JSON.stringify(name)+","+r.time_ms+","+r.x.toFixed(5)+","+r.y.toFixed(5)+","+r.z.toFixed(5)+","+r.total.toFixed(5)+"\n");
+  return new File(["\ufeff"+csv],safe+"_"+Date.now()+".csv",{type:"text/csv;charset=utf-8"});
+}
+
+$("download").onclick=()=>{
+  const f=makeFile(),u=URL.createObjectURL(f),a=document.createElement("a");
+  a.href=u;a.download=f.name;a.click();setTimeout(()=>URL.revokeObjectURL(u),1000);
+};
+
+$("share").onclick=async()=>{
+  const f=makeFile();
+  if(navigator.share && (!navigator.canShare || navigator.canShare({files:[f]}))){
+    try{await navigator.share({title:"AI Motion Lab 운동 데이터",text:$("exercise").value+" 측정 데이터",files:[f]});}
+    catch(e){if(e.name!=="AbortError")alert("공유 중 오류가 발생했습니다.");}
+  }else alert("파일 공유가 지원되지 않습니다. CSV 저장 후 휴대폰의 공유 기능을 이용하세요.");
+};
+</script>
+</body>
+</html>
